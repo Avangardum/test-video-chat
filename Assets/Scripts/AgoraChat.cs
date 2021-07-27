@@ -2,18 +2,24 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using agora_gaming_rtc;
+using TMPro;
 using UnityEngine;
+using UnityEngine.Networking;
 using UnityEngine.UI;
 
 public class AgoraChat : MonoBehaviour
 {
-    [SerializeField] private string appID;
     [SerializeField] private string channelName;
     [SerializeField] private Button joinButton;
     [SerializeField] private Button leaveButton;
     [SerializeField] private GameObject myViewGO;
     [SerializeField] private GameObject[] otherViewGOs;
+    [SerializeField] private TextMeshProUGUI usersInChannelText;
+    [SerializeField] private GameObject homeScreen;
+    [SerializeField] private GameObject chatScreen;
+    [SerializeField] private CredentialStorage credentialStorage;
 
     private VideoSurface _myView;
     private VideoSurface[] _otherViews;
@@ -23,9 +29,14 @@ public class AgoraChat : MonoBehaviour
 
     private void Awake()
     {
+        if (credentialStorage == null)
+        {
+            Debug.LogError("Credential storage is not assigned");
+        }
         SetupUI();
         SetupAgora();
         _otherUserIDs = Enumerable.Repeat<long>(-1, _otherViews.Length).ToArray();
+        StartCoroutine(UpdateUserCountCoroutine());
     }
     
     private void SetupUI()
@@ -41,7 +52,7 @@ public class AgoraChat : MonoBehaviour
 
     private void SetupAgora()
     {
-        _rtcEngine = IRtcEngine.GetEngine(appID);
+        _rtcEngine = IRtcEngine.GetEngine(credentialStorage.AgoraAppID);
         _rtcEngine.OnUserJoined = OnUserJoined;
         _rtcEngine.OnUserOffline = OnUserOffline;
         _rtcEngine.OnJoinChannelSuccess = OnJoinChannelSuccess;
@@ -94,6 +105,8 @@ public class AgoraChat : MonoBehaviour
 
     private void Join()
     {
+        homeScreen.SetActive(false);
+        chatScreen.SetActive(true);
         _rtcEngine.EnableVideo();
         _rtcEngine.EnableVideoObserver();
         _myView.SetEnable(true);
@@ -103,6 +116,9 @@ public class AgoraChat : MonoBehaviour
 
     private void Leave()
     {
+        chatScreen.SetActive(false);
+        homeScreen.SetActive(true);
+        
         _rtcEngine.LeaveChannel();
         _rtcEngine.DisableVideo();
         _rtcEngine.DisableVideoObserver();
@@ -115,5 +131,22 @@ public class AgoraChat : MonoBehaviour
             IRtcEngine.Destroy();
             _rtcEngine = null;
         }
+    }
+
+    private IEnumerator UpdateUserCountCoroutine()
+    {
+        string url = $"http://api.agora.io/dev/v1/channel/user/{credentialStorage.AgoraAppID}/{channelName}";
+        string plainCredential =
+            credentialStorage.AgoraRestfulAPICustomerID + ":" + credentialStorage.AgoraRestfulAPISecret;
+        var plainTextBytes = Encoding.UTF8.GetBytes(plainCredential);
+        string encodedCredential = Convert.ToBase64String(plainTextBytes);;
+        var request = UnityWebRequest.Get(url);
+        request.SetRequestHeader("Authorization", "Basic " + encodedCredential);
+        Debug.Log(request.GetRequestHeader("Authorization"));
+        
+        yield return request.SendWebRequest();
+
+        string requestResult = request.downloadHandler.text;
+        Debug.Log(requestResult);
     }
 }
