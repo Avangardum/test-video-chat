@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using agora_gaming_rtc;
 using UnityEngine;
 using UnityEngine.UI;
@@ -12,16 +13,19 @@ public class AgoraChat : MonoBehaviour
     [SerializeField] private Button joinButton;
     [SerializeField] private Button leaveButton;
     [SerializeField] private GameObject myViewGO;
-    [SerializeField] private GameObject otherViewGO;
+    [SerializeField] private GameObject[] otherViewGOs;
 
     private VideoSurface _myView;
-    private VideoSurface _otherView;
+    private VideoSurface[] _otherViews;
+    private long[] _otherUserIDs;
     private IRtcEngine _rtcEngine;
+    private int _otherUserCount;
 
     private void Awake()
     {
         SetupUI();
         SetupAgora();
+        _otherUserIDs = Enumerable.Repeat<long>(-1, _otherViews.Length).ToArray();
     }
     
     private void SetupUI()
@@ -29,9 +33,10 @@ public class AgoraChat : MonoBehaviour
         joinButton.onClick.AddListener(Join);
         leaveButton.onClick.AddListener(Leave);
         _myView = myViewGO.AddComponent<VideoSurface>();
-        _otherView = otherViewGO.AddComponent<VideoSurface>();
+        _otherViews = otherViewGOs.Select(x => x.AddComponent<VideoSurface>()).ToArray();
         _myView.SetEnable(false);
-        _otherView.SetEnable(false);
+        foreach (var otherView in _otherViews)
+            otherView.SetEnable(false);
     }
 
     private void SetupAgora()
@@ -53,7 +58,10 @@ public class AgoraChat : MonoBehaviour
     {
         Debug.Log("Left channel");
         _myView.SetEnable(false);
-        _otherView.SetEnable(false);
+        foreach (var otherView in _otherViews)
+        {
+            otherView.SetEnable(false);
+        }
     }
 
     private void OnJoinChannelSuccess(string channelname, uint uid, int elapsed)
@@ -64,14 +72,22 @@ public class AgoraChat : MonoBehaviour
     private void OnUserOffline(uint uid, USER_OFFLINE_REASON reason)
     {
         Debug.Log($"User {uid} disconnected");
-        _otherView.SetEnable(false);
+        int userIndex = Array.IndexOf(_otherUserIDs, uid);
+        _otherViews[userIndex].SetEnable(false);
+        _otherUserIDs[userIndex] = -1;
     }
 
     private void OnUserJoined(uint uid, int elapsed)
     {
         Debug.Log($"User {uid} joined");
-        _otherView.SetForUser(uid);
-        _otherView.SetEnable(true);
+        int userIndex = Array.IndexOf(_otherUserIDs, -1);
+        if (userIndex == -1)
+        {
+            throw new Exception("Too many users");
+        }
+        _otherUserIDs[userIndex] = uid;
+        _otherViews[userIndex].SetForUser(uid);
+        _otherViews[userIndex].SetEnable(true);
         // _otherView.SetVideoSurfaceType(AgoraVideoSurfaceType.RawImage);
         // _otherView.SetGameFps(30);
     }
@@ -81,6 +97,7 @@ public class AgoraChat : MonoBehaviour
         _rtcEngine.EnableVideo();
         _rtcEngine.EnableVideoObserver();
         _myView.SetEnable(true);
+        _otherUserCount = 0;
         _rtcEngine.JoinChannel(channelName, "", 0);
     }
 
