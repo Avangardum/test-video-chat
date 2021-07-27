@@ -1,0 +1,13 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+# Rider ignored files
+/modules.xml
+/projectSettingsUpdater.xml
+/.idea.Test video chat.iml
+/contentModel.xml
+# Datasource local storage ignored files
+/../../../../../../../../:\Users\Yuriy\Unity Projects\Test video chat\.idea\.idea.Test video chat\.idea/dataSources/
+/dataSources.local.xml
+# Editor-based HTTP Client requests
+/httpRequests/
