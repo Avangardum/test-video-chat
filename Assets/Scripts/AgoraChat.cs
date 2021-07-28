@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using agora_gaming_rtc;
+using Newtonsoft.Json.Linq;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -20,12 +21,17 @@ public class AgoraChat : MonoBehaviour
     [SerializeField] private GameObject homeScreen;
     [SerializeField] private GameObject chatScreen;
     [SerializeField] private CredentialStorage credentialStorage;
+    [SerializeField] private GameObject channelFullWindow;
 
     private VideoSurface _myView;
     private VideoSurface[] _otherViews;
     private long[] _otherUserIDs;
     private IRtcEngine _rtcEngine;
     private int _otherUserCount;
+    private int _userCount = -1;
+    private Coroutine _showChannelFullMessageCoroutine;
+
+    private int MaxUsers => _otherViews.Length + 1;
 
     private void Awake()
     {
@@ -37,11 +43,29 @@ public class AgoraChat : MonoBehaviour
         SetupAgora();
         _otherUserIDs = Enumerable.Repeat<long>(-1, _otherViews.Length).ToArray();
         StartCoroutine(UpdateUserCountCoroutine());
+        
     }
-    
+
+    private void Update()
+    {
+        string prefix = "Users in channel: ";
+        if (_userCount == -1)
+        {
+            usersInChannelText.text = prefix + "loading...";
+        }
+        else if (_userCount == -2)
+        {
+            usersInChannelText.text = prefix + "error";
+        }
+        else
+        {
+            usersInChannelText.text = prefix + $"{_userCount}/{MaxUsers}";
+        }
+    }
+
     private void SetupUI()
     {
-        joinButton.onClick.AddListener(Join);
+        joinButton.onClick.AddListener(OnJoinButtonClick);
         leaveButton.onClick.AddListener(Leave);
         _myView = myViewGO.AddComponent<VideoSurface>();
         _otherViews = otherViewGOs.Select(x => x.AddComponent<VideoSurface>()).ToArray();
@@ -88,6 +112,19 @@ public class AgoraChat : MonoBehaviour
         _otherUserIDs[userIndex] = -1;
     }
 
+    private void OnJoinButtonClick()
+    {
+        if (_userCount < MaxUsers)
+        {
+            Join();
+        }
+        else
+        {
+            if(_showChannelFullMessageCoroutine != null) StopCoroutine(_showChannelFullMessageCoroutine);
+            _showChannelFullMessageCoroutine = StartCoroutine(ShowChannelFullMessageCoroutine());
+        }
+    }
+    
     private void OnUserJoined(uint uid, int elapsed)
     {
         Debug.Log($"User {uid} joined");
@@ -135,18 +172,50 @@ public class AgoraChat : MonoBehaviour
 
     private IEnumerator UpdateUserCountCoroutine()
     {
-        string url = $"http://api.agora.io/dev/v1/channel/user/{credentialStorage.AgoraAppID}/{channelName}";
-        string plainCredential =
-            credentialStorage.AgoraRestfulAPICustomerID + ":" + credentialStorage.AgoraRestfulAPISecret;
-        var plainTextBytes = Encoding.UTF8.GetBytes(plainCredential);
-        string encodedCredential = Convert.ToBase64String(plainTextBytes);;
-        var request = UnityWebRequest.Get(url);
-        request.SetRequestHeader("Authorization", "Basic " + encodedCredential);
-        Debug.Log(request.GetRequestHeader("Authorization"));
+        while (true)
+        {
+            string url = $"http://api.agora.io/dev/v1/channel/user/{credentialStorage.AgoraAppID}/{channelName}";
+            string plainCredential =
+                credentialStorage.AgoraRestfulAPICustomerID + ":" + credentialStorage.AgoraRestfulAPISecret;
+            var plainTextBytes = Encoding.UTF8.GetBytes(plainCredential);
+            string encodedCredential = Convert.ToBase64String(plainTextBytes);;
+            var request = UnityWebRequest.Get(url);
+            request.SetRequestHeader("Authorization", "Basic " + encodedCredential);
         
-        yield return request.SendWebRequest();
+            yield return request.SendWebRequest();
 
-        string requestResult = request.downloadHandler.text;
-        Debug.Log(requestResult);
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                string responseString = request.downloadHandler.text;
+                Debug.Log(responseString);
+                JObject response = JObject.Parse(responseString);
+                var data = response["data"];
+                bool doesChannelExist = data["channel_exist"].ToObject<bool>();
+                _userCount = doesChannelExist ? data["total"].ToObject<int>() : 0;
+            }
+            else
+            {
+                _userCount = -2;
+                string responseString;
+                try
+                {
+                    responseString = request.downloadHandler.text;
+                }
+                catch (Exception e)
+                {
+                    responseString = "no response";
+                }
+                Debug.LogError($"Error while getting user count: {responseString}");
+            }
+
+            yield return new WaitForSeconds(0.1f);
+        }
+    }
+
+    private IEnumerator ShowChannelFullMessageCoroutine()
+    {
+        channelFullWindow.SetActive(true);
+        yield return new WaitForSeconds(2);
+        channelFullWindow.SetActive(false);
     }
 }
