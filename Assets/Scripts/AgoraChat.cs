@@ -17,19 +17,25 @@ public class AgoraChat : MonoBehaviour
     [SerializeField] private Button leaveButton;
     [SerializeField] private GameObject myViewGO;
     [SerializeField] private GameObject[] otherViewGOs;
+    [SerializeField] private Button[] muteButtons;
     [SerializeField] private TextMeshProUGUI usersInChannelText;
     [SerializeField] private GameObject homeScreen;
     [SerializeField] private GameObject chatScreen;
     [SerializeField] private CredentialStorage credentialStorage;
     [SerializeField] private GameObject channelFullWindow;
+    [SerializeField] private GameObject pleaseWaitWindow;
 
     private VideoSurface _myView;
     private VideoSurface[] _otherViews;
     private long[] _otherUserIDs;
+    private bool[] _areOtherUsersMuted;
+    private Image[] _muteButtonImages;
     private IRtcEngine _rtcEngine;
     private int _otherUserCount;
     private int _userCount = -1;
     private Coroutine _showChannelFullMessageCoroutine;
+    private Coroutine _showPleaseWaitMessageCoroutine;
+    private float _timeUntilCanJoin;
 
     private int MaxUsers => _otherViews.Length + 1;
 
@@ -41,7 +47,6 @@ public class AgoraChat : MonoBehaviour
         }
         SetupUI();
         SetupAgora();
-        _otherUserIDs = Enumerable.Repeat<long>(-1, _otherViews.Length).ToArray();
         StartCoroutine(UpdateUserCountCoroutine());
         
     }
@@ -61,6 +66,11 @@ public class AgoraChat : MonoBehaviour
         {
             usersInChannelText.text = prefix + $"{_userCount}/{MaxUsers}";
         }
+
+        if (_timeUntilCanJoin > 0)
+        {
+            _timeUntilCanJoin -= Time.deltaTime;
+        }
     }
 
     private void SetupUI()
@@ -69,6 +79,7 @@ public class AgoraChat : MonoBehaviour
         leaveButton.onClick.AddListener(Leave);
         _myView = myViewGO.AddComponent<VideoSurface>();
         _otherViews = otherViewGOs.Select(x => x.AddComponent<VideoSurface>()).ToArray();
+        _muteButtonImages = muteButtons.Select(x => x.GetComponent<Image>()).ToArray();
         _myView.SetEnable(false);
         foreach (var otherView in _otherViews)
             otherView.SetEnable(false);
@@ -97,11 +108,14 @@ public class AgoraChat : MonoBehaviour
         {
             otherView.SetEnable(false);
         }
+        _timeUntilCanJoin = 5;
     }
 
     private void OnJoinChannelSuccess(string channelname, uint uid, int elapsed)
     {
         Debug.Log($"Joined channel {channelname} with id {uid}");
+        _otherUserIDs = Enumerable.Repeat<long>(-1, _otherViews.Length).ToArray();
+        _areOtherUsersMuted = Enumerable.Repeat(false, _otherViews.Length).ToArray();
     }
 
     private void OnUserOffline(uint uid, USER_OFFLINE_REASON reason)
@@ -114,15 +128,21 @@ public class AgoraChat : MonoBehaviour
 
     private void OnJoinButtonClick()
     {
-        if (_userCount < MaxUsers)
+        if (_timeUntilCanJoin > 0)
         {
-            Join();
+            if (_showPleaseWaitMessageCoroutine != null) StopCoroutine(_showPleaseWaitMessageCoroutine);
+            _showPleaseWaitMessageCoroutine = StartCoroutine(ShowPleaseWaitMessageCoroutine());
+            return;
         }
-        else
+        
+        if (_userCount >= MaxUsers)
         {
             if(_showChannelFullMessageCoroutine != null) StopCoroutine(_showChannelFullMessageCoroutine);
             _showChannelFullMessageCoroutine = StartCoroutine(ShowChannelFullMessageCoroutine());
+            return;
         }
+        
+        Join();
     }
     
     private void OnUserJoined(uint uid, int elapsed)
@@ -147,7 +167,6 @@ public class AgoraChat : MonoBehaviour
         _rtcEngine.EnableVideo();
         _rtcEngine.EnableVideoObserver();
         _myView.SetEnable(true);
-        _otherUserCount = 0;
         _rtcEngine.JoinChannel(channelName, "", 0);
     }
 
@@ -217,5 +236,27 @@ public class AgoraChat : MonoBehaviour
         channelFullWindow.SetActive(true);
         yield return new WaitForSeconds(2);
         channelFullWindow.SetActive(false);
+    }
+    
+    private IEnumerator ShowPleaseWaitMessageCoroutine()
+    {
+        pleaseWaitWindow.SetActive(true);
+        yield return new WaitForSeconds(2);
+        pleaseWaitWindow.SetActive(false);
+    }
+
+    public void OnMuteButtonPress(int index)
+    {
+        if (_otherUserIDs[index] == -1)
+            return;
+
+        MuteUser(index, !_areOtherUsersMuted[index]);
+    }
+
+    public void MuteUser(int index, bool mute)
+    {
+        _areOtherUsersMuted[index] = mute;
+        _muteButtonImages[index].color = mute ? new Color(.8f, .8f, .8f) : Color.white;
+        _rtcEngine.AdjustUserPlaybackSignalVolume((uint)_otherUserIDs[index], mute ? 0 : 100);
     }
 }
