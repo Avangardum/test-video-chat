@@ -7,6 +7,7 @@ using agora_gaming_rtc;
 using Newtonsoft.Json.Linq;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Android;
 using UnityEngine.Networking;
 using UnityEngine.UI;
 
@@ -47,8 +48,8 @@ public class AgoraChat : MonoBehaviour
         }
         SetupUI();
         SetupAgora();
+        GetPermissions();
         StartCoroutine(UpdateUserCountCoroutine());
-        
     }
 
     private void Update()
@@ -93,6 +94,11 @@ public class AgoraChat : MonoBehaviour
         _rtcEngine.OnJoinChannelSuccess = OnJoinChannelSuccess;
         _rtcEngine.OnLeaveChannel = OnLeaveChannel;
         _rtcEngine.OnError = OnError;
+    }
+
+    private void GetPermissions()
+    {
+        Permission.RequestUserPermissions(new []{Permission.Microphone, Permission.Camera});
     }
 
     private void OnError(int error, string msg)
